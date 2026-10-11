@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url';
-import { pool } from './pool.js';
+import { connectDB, disconnectDB } from './connection.js';
 import { runMigrations } from './migrate.js';
+import { Template } from '../models/Template.js';
 
 // Thumbnails live in client/public/templates and are served by the client at /templates/<slug>.png
 const img = (slug) => `/templates/${slug}.png`;
@@ -64,26 +65,31 @@ export const templates = [
   },
 ];
 
-/** Upserts by unique template name, so re-running never duplicates rows or drops favorites. */
+/** Upserts by unique template name, so re-running never duplicates documents or drops favorites. */
 export async function seedTemplates() {
-  const sql = `
-    INSERT INTO templates (name, description, thumbnail_url, category)
-    VALUES (?, ?, ?, ?)
-    ON DUPLICATE KEY UPDATE
-      description   = VALUES(description),
-      thumbnail_url = VALUES(thumbnail_url),
-      category      = VALUES(category)
-  `;
-
-  for (const t of templates) {
-    await pool.execute(sql, [t.name, t.description, t.thumbnail_url, t.category]);
-  }
+  await Template.bulkWrite(
+    templates.map((t, index) => ({
+      updateOne: {
+        filter: { name: t.name },
+        update: {
+          $set: {
+            description: t.description,
+            thumbnailUrl: t.thumbnail_url,
+            category: t.category,
+            position: index,
+          },
+        },
+        upsert: true,
+      },
+    }))
+  );
 }
 
 async function main() {
+  await connectDB();
   await runMigrations();
   await seedTemplates();
-  const [[{ total }]] = await pool.query('SELECT COUNT(*) AS total FROM templates');
+  const total = await Template.countDocuments();
   console.log(`Seed complete. ${total} templates in the database.`);
 }
 
@@ -93,5 +99,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.error('Seeding failed:', err.message);
       process.exitCode = 1;
     })
-    .finally(() => pool.end());
+    .finally(() => disconnectDB());
 }

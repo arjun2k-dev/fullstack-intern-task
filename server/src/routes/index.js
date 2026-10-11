@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { testConnection } from '../db/pool.js';
+import { testConnection } from '../db/connection.js';
 import authRoutes from './auth.routes.js';
 import favoritesRoutes from './favorites.routes.js';
 import templatesRoutes from './templates.routes.js';

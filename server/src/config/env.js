@@ -14,9 +14,9 @@ if (isProd && !process.env.JWT_SECRET) {
   throw new Error('JWT_SECRET must be set when NODE_ENV=production');
 }
 
-const dbName = process.env.DB_NAME || 'template_store';
-if (!/^[A-Za-z0-9_$]+$/.test(dbName)) {
-  throw new Error('DB_NAME may only contain letters, numbers, underscores and $');
+const mongoUri = (process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/template_store').trim();
+if (!/^mongodb(\+srv)?:\/\//.test(mongoUri)) {
+  throw new Error('MONGODB_URI must start with mongodb:// or mongodb+srv://');
 }
 
 export const env = Object.freeze({
@@ -32,10 +32,6 @@ export const env = Object.freeze({
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   },
   db: {
-    host: process.env.DB_HOST || 'localhost',
-    port: Number(process.env.DB_PORT) || 3306,
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD ?? '',
-    database: dbName,
+    uri: mongoUri,
   },
 });

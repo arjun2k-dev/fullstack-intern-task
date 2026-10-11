@@ -1,16 +1,20 @@
-import { pool } from '../db/pool.js';
+import { Favorite } from '../models/Favorite.js';
+import { Template, toTemplateJSON } from '../models/Template.js';
 import { AppError } from '../utils/AppError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { parseId } from '../utils/validators.js';
 
-// Escape LIKE wildcards so user input is matched literally.
-const escapeLike = (value) => value.replace(/[\\%_]/g, '\\$&');
+// Escape regex metacharacters so user input is matched literally.
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const FAVORITE_FLAG_SQL = `EXISTS (
-  SELECT 1 FROM favorites f WHERE f.template_id = t.id AND f.user_id = ?
-)`;
-
-const toTemplate = (row) => ({ ...row, is_favorite: Boolean(row.is_favorite) });
+/** Returns the set of template ids (as strings) among `templateIds` that `userId` has favorited. */
+async function favoriteIdSet(userId, templateIds) {
+  if (!userId || templateIds.length === 0) return new Set();
+  const favs = await Favorite.find({ user: userId, template: { $in: templateIds } })
+    .select('template')
+    .lean();
+  return new Set(favs.map((f) => String(f.template)));
+}
 
 /**
  * GET /api/templates?search=&category=
@@ -19,63 +23,42 @@ const toTemplate = (row) => ({ ...row, is_favorite: Boolean(row.is_favorite) });
 export const listTemplates = asyncHandler(async (req, res) => {
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
   const category = typeof req.query.category === 'string' ? req.query.category.trim() : '';
-  const userId = req.user?.id;
 
-  const params = [];
-  let favoriteSelect = '0';
-  if (userId) {
-    favoriteSelect = FAVORITE_FLAG_SQL;
-    params.push(userId);
-  }
-
-  let sql = `
-    SELECT t.id, t.name, t.description, t.thumbnail_url, t.category,
-           ${favoriteSelect} AS is_favorite
-    FROM templates t
-    WHERE 1 = 1`;
-
+  const filter = {};
   if (search) {
-    sql += ` AND (t.name LIKE ? OR t.description LIKE ?)`;
-    const like = `%${escapeLike(search)}%`;
-    params.push(like, like);
+    const re = new RegExp(escapeRegex(search), 'i');
+    filter.$or = [{ name: re }, { description: re }];
   }
   if (category && category.toLowerCase() !== 'all') {
-    sql += ` AND t.category = ?`;
-    params.push(category);
+    filter.category = category;
   }
-  sql += ` ORDER BY t.id ASC`;
 
-  const [rows] = await pool.execute(sql, params);
-  res.json({ count: rows.length, templates: rows.map(toTemplate) });
+  const docs = await Template.find(filter).sort({ position: 1, _id: 1 }).lean();
+  const favorites = await favoriteIdSet(
+    req.user?.id,
+    docs.map((d) => d._id)
+  );
+
+  res.json({
+    count: docs.length,
+    templates: docs.map((d) => toTemplateJSON(d, favorites.has(String(d._id)))),
+  });
 });
 
 /** GET /api/templates/categories */
 export const listCategories = asyncHandler(async (req, res) => {
-  const [rows] = await pool.query('SELECT DISTINCT category FROM templates ORDER BY category ASC');
-  res.json({ categories: rows.map((r) => r.category) });
+  const categories = await Template.distinct('category');
+  categories.sort((a, b) => a.localeCompare(b));
+  res.json({ categories });
 });
 
 /** GET /api/templates/:id */
 export const getTemplate = asyncHandler(async (req, res) => {
   const id = parseId(req.params.id, 'Template id');
-  const userId = req.user?.id;
 
-  const params = [];
-  let favoriteSelect = '0';
-  if (userId) {
-    favoriteSelect = FAVORITE_FLAG_SQL;
-    params.push(userId);
-  }
-  params.push(id);
+  const doc = await Template.findById(id).lean();
+  if (!doc) throw new AppError(404, 'Template not found');
 
-  const [rows] = await pool.execute(
-    `SELECT t.id, t.name, t.description, t.thumbnail_url, t.category,
-            ${favoriteSelect} AS is_favorite
-     FROM templates t
-     WHERE t.id = ?`,
-    params
-  );
-
-  if (rows.length === 0) throw new AppError(404, 'Template not found');
-  res.json({ template: toTemplate(rows[0]) });
+  const favorites = await favoriteIdSet(req.user?.id, [doc._id]);
+  res.json({ template: toTemplateJSON(doc, favorites.has(String(doc._id))) });
 });

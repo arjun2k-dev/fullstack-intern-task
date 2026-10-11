@@ -22,9 +22,14 @@ export function errorHandler(err, req, res, next) {
     return res.status(413).json({ message: 'Request body too large' });
   }
 
-  // MySQL unique-constraint race (e.g. two simultaneous registrations)
-  if (err.code === 'ER_DUP_ENTRY') {
+  // MongoDB duplicate-key error (E11000), e.g. two simultaneous registrations
+  if (err.code === 11000) {
     return res.status(409).json({ message: 'Resource already exists' });
+  }
+
+  // Mongoose rejected a malformed value (e.g. an invalid ObjectId) or failed schema validation
+  if (err.name === 'CastError' || err.name === 'ValidationError') {
+    return res.status(400).json({ message: 'Invalid request data' });
   }
 
   console.error(err);

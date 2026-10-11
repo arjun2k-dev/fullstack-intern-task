@@ -3,7 +3,7 @@
 A full-stack web app for browsing SaaS UI templates and saving favorites. Users can register, log in, search and filter a template gallery, and heart the templates they like; favorites are stored per user.
 
 - **Frontend:** React 18 (Vite), Tailwind CSS, React Router v6, Axios
-- **Backend:** Node.js, Express, MySQL (`mysql2`), JWT auth, bcrypt hashing
+- **Backend:** Node.js, Express, MongoDB (Mongoose), JWT auth, bcrypt hashing
 - **Layout:** monorepo with `server/` (REST API) and `client/` (SPA)
 
 <!-- Add screenshots here, e.g. ![Gallery](docs/gallery.png) -->
@@ -34,10 +34,10 @@ fullstack-intern-task/
 │       ├── app.js            # Express app: helmet, CORS, JSON, routes, error handling
 │       ├── config/env.js     # environment loading and validation
 │       ├── db/
-│       │   ├── pool.js       # mysql2 connection pool
-│       │   ├── schema.sql    # users, templates, favorites tables
-│       │   ├── migrate.js    # creates the database and applies the schema
+│       │   ├── connection.js # Mongoose connection helpers
+│       │   ├── migrate.js    # creates collections and syncs indexes
 │       │   └── seed.js       # idempotent template seeding
+│       ├── models/           # Mongoose models: User, Template, Favorite
 │       ├── controllers/      # auth, templates, favorites
 │       ├── routes/           # route definitions per resource
 │       ├── middleware/       # auth (JWT) and error handling
@@ -59,7 +59,7 @@ fullstack-intern-task/
 ## Prerequisites
 
 - Node.js 18 or newer
-- MySQL 8 (or MariaDB 10.5+) running locally
+- MongoDB 6+ running locally, or a free MongoDB Atlas cluster
 
 ## Setup
 
@@ -79,7 +79,7 @@ cd server
 cp .env.example .env
 ```
 
-Edit `server/.env` and set at least `DB_PASSWORD` and `JWT_SECRET`. Generate a secret with:
+Edit `server/.env` and set at least `MONGODB_URI` (if it is not the local default) and `JWT_SECRET`. Generate a secret with:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
@@ -92,11 +92,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 | `CLIENT_URL` | `http://localhost:5173` | Allowed browser origin(s), comma-separated |
 | `JWT_SECRET` | dev-only fallback | Secret used to sign tokens. **Required in production** |
 | `JWT_EXPIRES_IN` | `7d` | Token lifetime |
-| `DB_HOST` | `localhost` | MySQL host |
-| `DB_PORT` | `3306` | MySQL port |
-| `DB_USER` | `root` | MySQL user |
-| `DB_PASSWORD` | *(empty)* | MySQL password |
-| `DB_NAME` | `template_store` | Database name (created automatically) |
+| `MONGODB_URI` | `mongodb://127.0.0.1:27017/template_store` | MongoDB connection string (local or Atlas `mongodb+srv://...`). The database is created automatically on first write |
 
 The client needs no configuration in development. To point it at a remote API, copy `client/.env.example` to `client/.env` and set `VITE_API_URL`.
 
@@ -106,7 +102,7 @@ The client needs no configuration in development. To point it at a remote API, c
 npm run seed               # run from server/
 ```
 
-This creates the database if it does not exist, applies the schema, and inserts the 8 templates. It is safe to run repeatedly: templates are upserted by name, so nothing is duplicated and users' favorites are kept.
+This creates the collections and indexes if they do not exist and inserts the 8 templates. It is safe to run repeatedly: templates are upserted by name, so nothing is duplicated and users' favorites are kept.
 
 ### 4. Run the app
 
@@ -149,17 +145,18 @@ curl -X POST http://localhost:5000/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{"name":"Ada Lovelace","email":"ada@example.com","password":"password123"}'
 
-# Favorite template 1 (use the token from the response above)
-curl -X POST http://localhost:5000/api/favorites/1 \
+# Favorite a template (get a template id from GET /api/templates, and use the token from the response above)
+curl -X POST http://localhost:5000/api/favorites/<templateId> \
   -H "Authorization: Bearer <token>"
 ```
 
 ## Design notes
 
-- **Security:** bcrypt (12 rounds), parameterized SQL everywhere, `helmet`, CORS restricted to `CLIENT_URL`, request body size limit, and rate limiting on login/register. Login returns the same error for unknown email and wrong password, and compares against a dummy hash for unknown emails so response time does not reveal which accounts exist.
+- **Security:** bcrypt (12 rounds), Mongoose schemas and cast queries (no string-built queries; regex input is escaped), `helmet`, CORS restricted to `CLIENT_URL`, request body size limit, and rate limiting on login/register. Login returns the same error for unknown email and wrong password, and compares against a dummy hash for unknown emails so response time does not reveal which accounts exist.
 - **Token handling:** the JWT lives in `localStorage` as specified. On load, the client verifies it with `/auth/me`; if any later request returns 401, the interceptor clears the token and the user is signed out.
-- **Favorites integrity:** a composite primary key `(user_id, template_id)` prevents duplicates, and foreign keys cascade on delete.
-- **Search and filter:** handled by the API with parameterized `LIKE` queries (wildcards in user input are escaped). The client debounces typing and cancels stale requests so results never arrive out of order.
+- **Favorites integrity:** a unique compound index on `(user, template)` prevents duplicates. MongoDB has no foreign keys, so deleting a user or template does not cascade; favorites pointing at a missing template are skipped when listing.
+- **IDs:** documents use MongoDB ObjectIds, returned to the client as 24-character hex strings in the `id` field. Response field names (`thumbnail_url`, `is_favorite`, ...) are unchanged, so the client needs no changes.
+- **Search and filter:** handled by the API with case-insensitive regex queries (special characters in user input are escaped). The client debounces typing and cancels stale requests so results never arrive out of order.
 - **Passwords:** the server uses `bcryptjs` (pure JavaScript) so installs never need native build tools.
 
 ## Scripts
@@ -170,20 +167,20 @@ curl -X POST http://localhost:5000/api/favorites/1 \
 | root | `npm run dev` | Run API and client together |
 | root | `npm run build` | Production build of the client |
 | `server/` | `npm run dev` / `npm start` | Run API with or without auto-reload |
-| `server/` | `npm run migrate` | Create database and tables only |
+| `server/` | `npm run migrate` | Create collections and sync indexes only |
 | `server/` | `npm run seed` | Migrate and seed templates |
 | `client/` | `npm run dev` / `build` / `preview` | Vite dev server, build, preview |
 
 ## Troubleshooting
 
-- **`Could not connect to MySQL`**: check that MySQL is running and that `DB_USER` / `DB_PASSWORD` in `server/.env` are correct.
-- **`ER_ACCESS_DENIED_ERROR` for `root`**: on some installs `root` needs a password. Set `DB_PASSWORD`, or create a dedicated user and use it.
+- **`Could not connect to MongoDB`**: check that `mongod` is running and that `MONGODB_URI` in `server/.env` is correct. For Atlas, add your IP to the cluster's network access list and URL-encode special characters in the password.
+- **Signed out after upgrading from the MySQL version**: tokens issued by the old version carry numeric ids and are rejected; just log in again (and re-register, since users are not migrated).
 - **Network error in the browser**: make sure the API is running on port 5000. The client uses Vite's proxy, so open the app via http://localhost:5173.
-- **Thumbnails not loading**: images are served by the client from `client/public/templates/` (database values look like `/templates/<slug>.png`). If you ever change a thumbnail in `seed.js`, re-run `npm run seed` in `server/` to update existing rows. The card shows a gradient placeholder if an image fails to load.
+- **Thumbnails not loading**: images are served by the client from `client/public/templates/` (stored values look like `/templates/<slug>.png`). If you ever change a thumbnail in `seed.js`, re-run `npm run seed` in `server/` to update existing documents. The card shows a gradient placeholder if an image fails to load.
 
 ## Author
 
-- **Name:** [Your Name]
-- **Email:** [your.email@example.com]
-- **GitHub:** [github.com/your-username](https://github.com/your-username)
-- **LinkedIn:** [linkedin.com/in/your-profile](https://linkedin.com/in/your-profile)
+- **Name:** [ARJUN KUMAR J]
+- **Email:** [arjunvedha25@gmail.com]
+- **GitHub:** [github.com/arjun2k-dev](https://github.com/arjun2k-dev)
+- **LinkedIn:** [linkedin.com/in/arjunk-dev](www.linkedin.com/in/arjunk-dev)

@@ -1,14 +1,14 @@
 import app from './app.js';
 import { env } from './config/env.js';
-import { pool, testConnection } from './db/pool.js';
+import { connectDB, describeConnection, disconnectDB } from './db/connection.js';
 
 async function start() {
   try {
-    await testConnection();
-    console.log(`MySQL connected (${env.db.host}:${env.db.port}/${env.db.database})`);
+    await connectDB();
+    console.log(`MongoDB connected (${describeConnection()})`);
   } catch (err) {
-    console.error('Could not connect to MySQL:', err.message);
-    console.error('Check the DB_* values in server/.env and run "npm run seed" once.');
+    console.error('Could not connect to MongoDB:', err.message);
+    console.error('Check MONGODB_URI in server/.env and make sure MongoDB is running.');
     process.exit(1);
   }
 
@@ -19,7 +19,7 @@ async function start() {
   const shutdown = (signal) => {
     console.log(`${signal} received, shutting down...`);
     server.close(async () => {
-      await pool.end();
+      await disconnectDB();
       process.exit(0);
     });
   };

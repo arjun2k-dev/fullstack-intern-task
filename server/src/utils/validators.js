@@ -45,14 +45,15 @@ export function validateLogin(body = {}) {
   return { email, password };
 }
 
-/** Parses a positive integer route param or throws 400. */
+const OBJECT_ID_RE = /^[a-f\d]{24}$/i;
+
+/** Returns true for a 24-character hex MongoDB ObjectId string. */
+export const isObjectId = (value) => OBJECT_ID_RE.test(String(value));
+
+/** Validates a MongoDB ObjectId route param or throws 400. */
 export function parseId(value, label = 'id') {
-  if (!/^\d+$/.test(String(value))) {
-    throw new AppError(400, `${label} must be a positive integer`);
+  if (!isObjectId(value)) {
+    throw new AppError(400, `${label} is not a valid id`);
   }
-  const id = Number(value);
-  if (!Number.isSafeInteger(id) || id < 1) {
-    throw new AppError(400, `${label} must be a positive integer`);
-  }
-  return id;
+  return String(value);
 }

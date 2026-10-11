@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { pool } from '../db/pool.js';
+import { User, publicUser } from '../models/User.js';
 import { AppError } from '../utils/AppError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { signToken } from '../utils/jwt.js';
@@ -11,26 +11,29 @@ const SALT_ROUNDS = 12;
 // whether an account exists.
 const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', SALT_ROUNDS);
 
-const publicUser = (row) => ({ id: row.id, name: row.name, email: row.email });
+const emailTaken = () =>
+  new AppError(409, 'An account with this email already exists', {
+    email: 'Email is already registered',
+  });
 
 /** POST /api/auth/register */
 export const register = asyncHandler(async (req, res) => {
   const { name, email, password } = validateRegister(req.body);
 
-  const [existing] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
-  if (existing.length > 0) {
-    throw new AppError(409, 'An account with this email already exists', {
-      email: 'Email is already registered',
-    });
-  }
+  if (await User.exists({ email })) throw emailTaken();
 
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-  const [result] = await pool.execute(
-    'INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)',
-    [name, email, passwordHash]
-  );
 
-  const user = { id: result.insertId, name, email };
+  let created;
+  try {
+    created = await User.create({ name, email, passwordHash });
+  } catch (err) {
+    // Unique-index race: two simultaneous registrations with the same email
+    if (err.code === 11000) throw emailTaken();
+    throw err;
+  }
+
+  const user = publicUser(created);
   res.status(201).json({
     message: 'Registration successful',
     user,
@@ -42,31 +45,25 @@ export const register = asyncHandler(async (req, res) => {
 export const login = asyncHandler(async (req, res) => {
   const { email, password } = validateLogin(req.body);
 
-  const [rows] = await pool.execute(
-    'SELECT id, name, email, password_hash FROM users WHERE email = ?',
-    [email]
-  );
-  const row = rows[0];
+  const found = await User.findOne({ email });
 
-  const passwordMatches = await bcrypt.compare(password, row ? row.password_hash : DUMMY_HASH);
-  if (!row || !passwordMatches) {
+  const passwordMatches = await bcrypt.compare(password, found ? found.passwordHash : DUMMY_HASH);
+  if (!found || !passwordMatches) {
     throw new AppError(401, 'Invalid email or password');
   }
 
   res.json({
     message: 'Login successful',
-    user: publicUser(row),
-    token: signToken(row.id),
+    user: publicUser(found),
+    token: signToken(found.id),
   });
 });
 
 /** GET /api/auth/me - lets the client restore a session from a stored token. */
 export const me = asyncHandler(async (req, res) => {
-  const [rows] = await pool.execute('SELECT id, name, email FROM users WHERE id = ?', [
-    req.user.id,
-  ]);
-  if (rows.length === 0) {
+  const found = await User.findById(req.user.id);
+  if (!found) {
     throw new AppError(401, 'User no longer exists');
   }
-  res.json({ user: publicUser(rows[0]) });
+  res.json({ user: publicUser(found) });
 });

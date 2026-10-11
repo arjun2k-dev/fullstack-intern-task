@@ -1,5 +1,6 @@
 import { AppError } from '../utils/AppError.js';
 import { verifyToken } from '../utils/jwt.js';
+import { isObjectId } from '../utils/validators.js';
 
 function readBearerToken(req) {
   const header = req.headers.authorization;
@@ -14,7 +15,9 @@ export function requireAuth(req, res, next) {
 
   try {
     const payload = verifyToken(token);
-    req.user = { id: Number(payload.sub) };
+    // Tokens issued before the MongoDB migration carry a numeric id; treat them as invalid.
+    if (!isObjectId(payload.sub)) throw new Error('Unsupported token subject');
+    req.user = { id: payload.sub };
     return next();
   } catch {
     return next(new AppError(401, 'Invalid or expired token'));
@@ -26,7 +29,8 @@ export function optionalAuth(req, res, next) {
   const token = readBearerToken(req);
   if (token) {
     try {
-      req.user = { id: Number(verifyToken(token).sub) };
+      const { sub } = verifyToken(token);
+      if (isObjectId(sub)) req.user = { id: sub };
     } catch {
       // Ignore bad tokens on public endpoints; the user is simply treated as anonymous.
     }

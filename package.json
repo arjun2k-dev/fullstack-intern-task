@@ -2,7 +2,7 @@
   "name": "fullstack-intern-task",
   "version": "1.0.0",
   "private": true,
-  "description": "Mini SaaS Template Store - monorepo (Express + MySQL API, React + Vite + Tailwind client)",
+  "description": "Mini SaaS Template Store - monorepo (Express + MongoDB API, React + Vite + Tailwind client)",
   "scripts": {
     "install:all": "npm install && npm --prefix server install && npm --prefix client install",
     "dev": "concurrently -n server,client -c blue,green \"npm --prefix server run dev\" \"npm --prefix client run dev\"",

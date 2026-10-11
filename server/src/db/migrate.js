@@ -1,36 +1,22 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import mysql from 'mysql2/promise';
-import { env } from '../config/env.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const schemaPath = path.join(__dirname, 'schema.sql');
+import { pathToFileURL } from 'node:url';
+import { connectDB, describeConnection, disconnectDB } from './connection.js';
+import { Favorite } from '../models/Favorite.js';
+import { Template } from '../models/Template.js';
+import { User } from '../models/User.js';
 
 /**
- * Creates the database (if missing) and applies schema.sql.
+ * MongoDB creates databases and collections on first write, so there is no schema to apply.
+ * What does need setting up is indexes (unique email, unique template name, unique favorite pair).
  * Idempotent, so it is safe to call before every seed.
  */
 export async function runMigrations() {
-  const { host, port, user, password, database } = env.db;
-
-  const connection = await mysql.createConnection({
-    host,
-    port,
-    user,
-    password,
-    multipleStatements: true,
-  });
-
-  try {
-    await connection.query(
-      `CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-    );
-    await connection.changeUser({ database });
-    const sql = await fs.readFile(schemaPath, 'utf8');
-    await connection.query(sql);
-  } finally {
-    await connection.end();
+  await connectDB();
+  for (const model of [User, Template, Favorite]) {
+    await model.createCollection().catch((err) => {
+      // 48 = NamespaceExists: the collection is already there
+      if (err.code !== 48) throw err;
+    });
+    await model.syncIndexes();
   }
 }
 
@@ -38,10 +24,11 @@ export async function runMigrations() {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runMigrations()
     .then(() => {
-      console.log(`Database "${env.db.database}" is ready (schema applied).`);
+      console.log(`Database "${describeConnection()}" is ready (indexes applied).`);
     })
     .catch((err) => {
       console.error('Migration failed:', err.message);
-      process.exit(1);
-    });
+      process.exitCode = 1;
+    })
+    .finally(() => disconnectDB());
 }
