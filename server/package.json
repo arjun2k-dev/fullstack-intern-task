@@ -9,9 +9,8 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "migrate": "node src/db/migrate.js",
-    "seed": "node src/db/seed.js",
-    "build": "npm --prefix client install && npm --prefix client run build"
-  },
+    "seed": "node src/db/seed.js"
+    },
   "engines": {
     "node": ">=18"
   },
