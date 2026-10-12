@@ -7,7 +7,9 @@ import { errorHandler, notFound } from './middleware/errorHandler.js';
 import routes from './routes/index.js';
 
 const app = express();
-app.set('trust proxy', 1);   // so the rate limiter reads the real client IP behind Vercel
+
+// Behind Vercel's proxy: trust the first hop so the rate limiter sees the real client IP
+app.set('trust proxy', 1);
 
 app.use(helmet());
 app.use(

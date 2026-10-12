@@ -6,17 +6,25 @@ import { env } from '../config/env.js';
 // Reject queries with unknown fields instead of silently ignoring them.
 mongoose.set('strictQuery', true);
 
-/** Connects once; later calls reuse the existing connection. */
+let connecting = null;
+
+/** Connects once; concurrent and later calls reuse the same connection (important on serverless). */
 export async function connectDB() {
   if (mongoose.connection.readyState === 1) return mongoose.connection;
-  await mongoose.connect(env.db.uri, {
-    serverSelectionTimeoutMS: 5000,
-    maxPoolSize: 10,
-  });
-  return mongoose.connection;
+  if (!connecting) {
+    connecting = mongoose
+      .connect(env.db.uri, { serverSelectionTimeoutMS: 5000, maxPoolSize: 10 })
+      .then(() => mongoose.connection)
+      .catch((err) => {
+        connecting = null; // allow a retry on the next request
+        throw err;
+      });
+  }
+  return connecting;
 }
 
 export async function disconnectDB() {
+  connecting = null;
   await mongoose.disconnect();
 }
 

@@ -9,7 +9,7 @@ export default function Layout() {
         <Outlet />
       </main>
       <footer className="border-t border-slate-200 py-6 text-center text-sm text-slate-500">
-        Mini SaaS Template Store &middot; Built with React, Express and MySQL
+        Mini SaaS Template Store &middot; Built with React, Express and MongoDB
       </footer>
     </div>
   );

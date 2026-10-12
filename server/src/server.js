@@ -27,4 +27,10 @@ async function start() {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
-start();
+// On Vercel the API runs as a serverless function (server/api/index.js imports app.js),
+// so there is no long-running process to start. Locally, `npm start` / `npm run dev` listens on a port.
+if (!process.env.VERCEL) {
+  start();
+}
+
+export default app;
