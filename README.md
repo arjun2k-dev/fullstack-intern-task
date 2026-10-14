@@ -5,7 +5,7 @@ A full-stack web app for browsing SaaS UI templates and saving favorites. Users 
 - **Frontend:** React 18 (Vite), Tailwind CSS, React Router v6, Axios
 - **Backend:** Node.js, Express, MongoDB (Mongoose), JWT auth, bcrypt hashing
 - **Layout:** monorepo with `server/` (REST API) and `client/` (SPA)
-- **Deployment:** configured for Vercel (static client + serverless API), see [Deployment](#deployment)
+- **Deployment:** configured for Vercel (static client + serverless API), see [Deployment](https://fullstack-intern-task-kq16.vercel.app/)
 
 <!-- Add screenshots here, e.g. ![Gallery](docs/gallery.png) -->
 
