@@ -15,10 +15,25 @@ app.use(helmet());
 app.use(
   cors({
     origin(origin, callback) {
-      // Allow non-browser clients (curl, Postman) and whitelisted browser origins
-      if (!origin || env.clientUrls.includes(origin)) return callback(null, true);
+      // Allow non-browser requests (Postman, curl, server-to-server)
+      if (!origin) return callback(null, true);
+
+      const cleanOrigin = origin.replace(/\/$/, '');
+
+      // Check against env, localhost, or any vercel.app preview/production deployment
+      const isAllowed =
+        cleanOrigin.endsWith('.vercel.app') ||
+        cleanOrigin.includes('localhost') ||
+        (Array.isArray(env.clientUrls) &&
+          env.clientUrls.some((url) => url.replace(/\/$/, '') === cleanOrigin));
+
+      if (isAllowed) {
+        return callback(null, true);
+      }
+
       return callback(new Error(`Origin ${origin} not allowed by CORS`));
     },
+    credentials: true,
   })
 );
 app.use(express.json({ limit: '10kb' }));
