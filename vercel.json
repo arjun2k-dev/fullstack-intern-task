@@ -4,7 +4,9 @@
     {
       "src": "client/package.json",
       "use": "@vercel/static-build",
-      "config": { "distDir": "dist" }
+      "config": {
+        "distDir": "dist"
+      }
     },
     {
       "src": "server/api/index.js",
@@ -17,12 +19,16 @@
       "dest": "/server/api/index.js"
     },
     {
-      "src": "/templates/(.*)",
-      "dest": "/client/index.html"
+      "src": "/assets/(.*)",
+      "dest": "/client/assets/$1"
+    },
+    {
+      "src": "/templates/.*\\.(png|jpg|svg|ico)",
+      "dest": "/client/$0"
     },
     {
       "src": "/(.*)",
-      "dest": "/client/$1"
+      "dest": "/client/index.html"
     }
   ]
 }
